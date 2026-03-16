@@ -1,12 +1,12 @@
 # Sample CI/CD App - Kubernetes Manifests
 
-Sample CI/CD Application の Kubernetes マニフェストリポジトリです。
+[sample-cicd-app](https://github.com/kmotojim/sample-cicd-app) の Kubernetes マニフェストリポジトリです。
 ArgoCD による GitOps パターンで、dev / prod 環境へのデプロイを管理します。
 
 ## ディレクトリ構成
 
 ```
-manifests-repo/
+sample-cicd-app-manifests/
 ├── argocd/
 │   ├── appproject.yaml                # ArgoCD プロジェクト定義
 │   ├── application-dev.yaml           # dev 環境 (develop ブランチ)
@@ -73,5 +73,5 @@ oc apply -k overlays/prod/
 
 ## セットアップ手順
 
-> **セットアップの全手順はソースリポジトリの [README.md](../README.md) に集約されています。**
+> **セットアップの全手順はソースリポジトリの [sample-cicd-app README](https://github.com/kmotojim/sample-cicd-app#readme) に集約されています。**
 > 本ドキュメントはマニフェストリポ単体のリファレンスです。個別に読む必要はありません。

@@ -39,7 +39,7 @@ spec:
           - name: image-name
             value: <MIRROR_REGISTRY>/sample-cicd-app/smart-mobility-backend
           - name: manifests-repo-url
-            value: https://<GITEA_HOST>/sample-cicd-app-manifests.git
+            value: https://<GITEA_HOST>/<GITEA_OWNER>/sample-cicd-app-manifests.git
           - name: manifests-branch
             value: develop
         workspaces:

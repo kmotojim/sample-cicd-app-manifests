@@ -61,6 +61,8 @@ metadata:
   name: smoke-test-event-listener
   namespace: <NAMESPACE>
 spec:
+  port:
+    targetPort: http-listener
   to:
     kind: Service
     name: el-smoke-test-event-listener

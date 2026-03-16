@@ -13,7 +13,7 @@ spec:
   description: Sample CI/CD Application Project
 
   sourceRepos:
-    - "https://<GITEA_HOST>/sample-cicd-app-manifests.git"
+    - "https://<GITEA_HOST>/<GITEA_OWNER>/sample-cicd-app-manifests.git"
 
   destinations:
     - namespace: sample-cicd-dev

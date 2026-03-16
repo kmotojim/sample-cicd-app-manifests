@@ -59,16 +59,6 @@ spec:
   triggers:
     - name: gitea-push-trigger
       interceptors:
-        # Gitea は GitHub 互換ウェブフック形式をサポート
-        - ref:
-            name: "github"
-          params:
-            - name: "secretRef"
-              value:
-                secretName: gitea-webhook-secret
-                secretKey: secret
-            - name: "eventTypes"
-              value: ["push"]
         - ref:
             name: "cel"
           params:
@@ -86,6 +76,8 @@ metadata:
   name: ci-event-listener
   namespace: <NAMESPACE>
 spec:
+  port:
+    targetPort: http-listener
   to:
     kind: Service
     name: el-ci-event-listener

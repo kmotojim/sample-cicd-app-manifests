@@ -16,4 +16,4 @@ spec:
     - name: git-revision
       value: $(body.after)
     - name: git-branch
-      value: $(extensions.truncated_sha)
+      value: $(body.ref)

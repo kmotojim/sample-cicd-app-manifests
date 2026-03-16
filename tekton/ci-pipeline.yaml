@@ -29,7 +29,7 @@ spec:
     - name: manifests-repo-url
       type: string
       description: マニフェストリポジトリの URL
-      default: https://<GITEA_HOST>/sample-cicd-app-manifests.git
+      default: https://<GITEA_HOST>/<GITEA_OWNER>/sample-cicd-app-manifests.git
     - name: manifests-branch
       type: string
       description: マニフェストリポのターゲットブランチ
@@ -47,14 +47,20 @@ spec:
     # ------------------------------------------------------------------
     - name: git-clone
       taskRef:
-        name: git-clone
-        kind: ClusterTask
+        resolver: cluster
+        params:
+          - name: kind
+            value: task
+          - name: name
+            value: git-clone
+          - name: namespace
+            value: openshift-pipelines
       params:
-        - name: url
+        - name: URL
           value: $(params.git-url)
-        - name: revision
+        - name: REVISION
           value: $(params.git-revision)
-        - name: deleteExisting
+        - name: DELETE_EXISTING
           value: "true"
       workspaces:
         - name: output
@@ -106,14 +112,20 @@ spec:
       runAfter:
         - cmake-build-test
       taskRef:
-        name: buildah
-        kind: ClusterTask
+        resolver: cluster
+        params:
+          - name: kind
+            value: task
+          - name: name
+            value: buildah
+          - name: namespace
+            value: openshift-pipelines
       params:
         - name: IMAGE
           value: $(params.image-name):$(params.git-revision)
         - name: DOCKERFILE
           value: Containerfile
-        - name: TLSVERIFY
+        - name: TLS_VERIFY
           value: "false"
       workspaces:
         - name: source
@@ -146,15 +158,11 @@ spec:
             optional: true
         steps:
           - name: update-image-tag
-            image: <MIRROR_REGISTRY>/ubi9/ubi:latest
+            # git コマンドが必要なため、git 入りのイメージを使用
+            image: <MIRROR_REGISTRY>/udi-rhel9:latest
             script: |
               #!/bin/bash
               set -e
-
-              # kustomize がなければ oc または sed でフォールバック
-              if ! command -v kustomize &> /dev/null && ! command -v oc &> /dev/null; then
-                echo "WARNING: kustomize/oc not found, using sed fallback"
-              fi
 
               WORK_DIR="/tmp/manifests"
               rm -rf "$WORK_DIR"

@@ -19,7 +19,7 @@ spec:
   project: sample-cicd-app
 
   source:
-    repoURL: https://<GITEA_HOST>/sample-cicd-app-manifests.git
+    repoURL: https://<GITEA_HOST>/<GITEA_OWNER>/sample-cicd-app-manifests.git
     targetRevision: develop
     path: overlays/dev
 

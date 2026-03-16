@@ -2,11 +2,13 @@
 # CI Pipeline: sample-cicd-app
 #
 # フロー: git-clone → cmake-build-test → buildah → update-manifests
+#         → wait-for-deploy → smoke-test → create-pr
 #
 # 事前にカスタマイズが必要な箇所:
 #   - <GITEA_HOST>       : Gitea のホスト名 (例: gitea.example.com)
 #   - <MIRROR_REGISTRY>  : ミラーレジストリのアドレス (例: registry.example.com)
 #   - <NAMESPACE>        : Tekton リソースをデプロイする namespace
+#   - <APP_ROUTE_HOST>   : dev 環境アプリの Route ホスト名
 # =============================================================================
 apiVersion: tekton.dev/v1
 kind: Pipeline
@@ -34,6 +36,22 @@ spec:
       type: string
       description: マニフェストリポのターゲットブランチ
       default: develop
+    - name: app-route-url
+      type: string
+      description: dev 環境アプリの Route URL
+      default: https://<APP_ROUTE_HOST>
+    - name: gitea-host
+      type: string
+      description: Gitea ホスト名
+      default: <GITEA_HOST>
+    - name: manifests-repo-owner
+      type: string
+      description: Gitea リポジトリオーナー
+      default: <GITEA_OWNER>
+    - name: manifests-repo-name
+      type: string
+      description: マニフェストリポジトリ名
+      default: sample-cicd-app-manifests
 
   workspaces:
     - name: shared-workspace
@@ -205,4 +223,162 @@ spec:
         - name: image-name
           value: $(params.image-name)
         - name: image-tag
+          value: $(params.git-revision)
+
+    # ------------------------------------------------------------------
+    # Step 5: wait-for-deploy (ArgoCD sync 待ち + ヘルスチェック)
+    # ------------------------------------------------------------------
+    - name: wait-for-deploy
+      runAfter:
+        - update-manifests
+      taskSpec:
+        params:
+          - name: app-url
+            type: string
+        steps:
+          - name: wait-and-check
+            image: <MIRROR_REGISTRY>/ubi9/ubi-minimal:latest
+            script: |
+              #!/bin/bash
+              set -e
+
+              APP_URL="$(params.app-url)"
+              MAX_RETRIES=30
+              RETRY_INTERVAL=10
+
+              echo "=== Waiting for dev deployment (ArgoCD sync + rollout) ==="
+              for i in $(seq 1 $MAX_RETRIES); do
+                echo "Attempt $i/$MAX_RETRIES..."
+                HTTP_CODE=$(curl -sk -o /dev/null -w "%{http_code}" "${APP_URL}/health" || echo "000")
+                if [ "$HTTP_CODE" = "200" ]; then
+                  echo "App is healthy (HTTP $HTTP_CODE)"
+                  exit 0
+                fi
+                echo "HTTP $HTTP_CODE - retrying in ${RETRY_INTERVAL}s..."
+                sleep $RETRY_INTERVAL
+              done
+              echo "Deployment health check timed out after $((MAX_RETRIES * RETRY_INTERVAL))s"
+              exit 1
+      params:
+        - name: app-url
+          value: $(params.app-route-url)
+
+    # ------------------------------------------------------------------
+    # Step 6: smoke-test (API 動作確認)
+    # ------------------------------------------------------------------
+    - name: smoke-test
+      runAfter:
+        - wait-for-deploy
+      taskSpec:
+        params:
+          - name: app-url
+            type: string
+        steps:
+          - name: run-smoke-tests
+            image: <MIRROR_REGISTRY>/ubi9/ubi-minimal:latest
+            script: |
+              #!/bin/bash
+              set -e
+
+              APP_URL="$(params.app-url)"
+
+              echo "=== Smoke Test: Health Check ==="
+              HEALTH=$(curl -sk "${APP_URL}/health")
+              echo "GET /health => $HEALTH"
+              echo "$HEALTH" | grep -q '"status":"UP"' || { echo "FAILED"; exit 1; }
+              echo "Health check passed"
+
+              echo ""
+              echo "=== Smoke Test: API Check ==="
+              RESPONSE=$(curl -sk "${APP_URL}/api/vehicle/state")
+              echo "GET /api/vehicle/state => $RESPONSE"
+              if echo "$RESPONSE" | grep -q '"speed"'; then
+                echo "API check passed"
+              else
+                echo "API check: speed field not found, trying alternate endpoint..."
+                HTTP_CODE=$(curl -sk -o /dev/null -w "%{http_code}" "${APP_URL}/")
+                echo "GET / => HTTP $HTTP_CODE"
+                [ "$HTTP_CODE" = "200" ] || { echo "FAILED"; exit 1; }
+                echo "Static files check passed"
+              fi
+
+              echo ""
+              echo "=== All smoke tests passed ==="
+      params:
+        - name: app-url
+          value: $(params.app-route-url)
+
+    # ------------------------------------------------------------------
+    # Step 7: create-pr (develop → main の PR 作成)
+    # ------------------------------------------------------------------
+    - name: create-pr
+      runAfter:
+        - smoke-test
+      taskSpec:
+        params:
+          - name: gitea-host
+            type: string
+          - name: repo-owner
+            type: string
+          - name: repo-name
+            type: string
+          - name: revision
+            type: string
+        steps:
+          - name: create-pull-request
+            image: <MIRROR_REGISTRY>/ubi9/ubi-minimal:latest
+            env:
+              - name: GITEA_TOKEN
+                valueFrom:
+                  secretKeyRef:
+                    name: gitea-credentials
+                    key: token
+            script: |
+              #!/bin/bash
+              set -e
+
+              GITEA_HOST="$(params.gitea-host)"
+              OWNER="$(params.repo-owner)"
+              REPO="$(params.repo-name)"
+              REVISION="$(params.revision)"
+
+              PR_TITLE="Promote to production: ${REVISION:0:12}"
+              PR_BODY="Smoke tests passed for revision ${REVISION}.\n\nAutomatically created by CI pipeline."
+
+              echo "=== Creating PR: develop -> main ==="
+              echo "Repo: ${OWNER}/${REPO}"
+
+              EXISTING=$(curl -sk \
+                -H "Authorization: token ${GITEA_TOKEN}" \
+                "https://${GITEA_HOST}/api/v1/repos/${OWNER}/${REPO}/pulls?state=open&head=${OWNER}:develop&base=main" \
+                | grep -c '"id"' || true)
+
+              if [ "$EXISTING" -gt "0" ]; then
+                echo "Open PR already exists. Skipping creation."
+                exit 0
+              fi
+
+              HTTP_CODE=$(curl -sk -o /tmp/pr-response.json -w "%{http_code}" \
+                -X POST \
+                -H "Authorization: token ${GITEA_TOKEN}" \
+                -H "Content-Type: application/json" \
+                -d "{\"title\":\"${PR_TITLE}\",\"body\":\"${PR_BODY}\",\"head\":\"develop\",\"base\":\"main\"}" \
+                "https://${GITEA_HOST}/api/v1/repos/${OWNER}/${REPO}/pulls")
+
+              if [ "$HTTP_CODE" = "201" ]; then
+                PR_URL=$(cat /tmp/pr-response.json | grep -o '"html_url":"[^"]*"' | head -1 | cut -d'"' -f4)
+                echo "PR created successfully: ${PR_URL}"
+              else
+                echo "Failed to create PR (HTTP $HTTP_CODE)"
+                cat /tmp/pr-response.json
+                exit 1
+              fi
+      params:
+        - name: gitea-host
+          value: $(params.gitea-host)
+        - name: repo-owner
+          value: $(params.manifests-repo-owner)
+        - name: repo-name
+          value: $(params.manifests-repo-name)
+        - name: revision
           value: $(params.git-revision)

@@ -25,14 +25,10 @@ sample-cicd-app-manifests/
 │       ├── kustomization.yaml
 │       └── namespace.yaml
 └── tekton/
-    ├── ci-pipeline.yaml               # CI パイプライン (build/test/push)
+    ├── ci-pipeline.yaml               # CI パイプライン (build/test/push/smoke-test/PR作成)
     ├── ci-event-listener.yaml         # Gitea push webhook 受信
     ├── ci-trigger-binding.yaml        # Gitea ペイロードマッピング
-    ├── ci-trigger-template.yaml       # CI PipelineRun 生成
-    ├── smoke-test-pipeline.yaml       # スモークテスト (curl + PR 作成)
-    ├── smoke-test-event-listener.yaml # ArgoCD sync 通知受信
-    ├── smoke-test-trigger-binding.yaml
-    └── smoke-test-trigger-template.yaml
+    └── ci-trigger-template.yaml       # CI PipelineRun 生成
 ```
 
 ## ブランチ戦略
@@ -58,8 +54,9 @@ sample-cicd-app-manifests/
 1. CI パイプラインがイメージをビルド・push
 2. CI パイプラインが `base/kustomization.yaml` の image tag を更新して develop に push
 3. ArgoCD が develop ブランチの変更を検知 → dev 環境に自動デプロイ
-4. スモークテストパイプラインが実行 → 成功時に develop → main の PR を自動作成
-5. PR を手動マージ → ArgoCD が main ブランチの変更を検知 → prod 環境にデプロイ
+4. CI パイプラインが dev 環境の起動を待機 → スモークテスト実行
+5. スモークテスト成功時に develop → main の PR を自動作成
+6. PR を手動マージ → ArgoCD が main ブランチの変更を検知 → prod 環境にデプロイ
 
 ## 手動デプロイ (Kustomize)
 
